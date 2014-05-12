@@ -29,7 +29,7 @@ class Mpu9150:
             self.connect()
         elif line == "sample":
             self.change_sampling_rate()
-       elif line =="":
+        elif line =="":
             print "say something"     
         elif line == "q":
             print "quitting"

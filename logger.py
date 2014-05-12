@@ -89,7 +89,7 @@ class mpu9150interface(object):
         NUM_BYTES = 23
         p = None
 
-        time.sleep(0.005)
+        time.sleep(0.0005)
 
         
         while self.s.inWaiting() >= NUM_BYTES:
@@ -109,11 +109,11 @@ class mpu9150interface(object):
                     self.quat_list[self.index_quat] = p
                     self.index_quat = self.index_quat + 1
                     
-                    #p.display()
+                    p.display()
                     print "+",
                 elif pkt_code == 3:
                     d = data_packet(rs)
-                    #d.display()
+                    d.display()
                     self.data = d.data
                     datatype = d.type
 
@@ -126,10 +126,10 @@ class mpu9150interface(object):
                         self.z_list[self.index_accel] = d.data[2]
 
                         vec = [d.data[0] , d.data[1], d.data[2]]
-                        vec = vec - self.gravity
-                        norm = np.linalg.norm(vec)
-                        norm = norm-1
-                        self.mag_list[self.index_accel] = norm
+                        #vec = vec - self.gravity
+                        #norm = np.linalg.norm(vec)
+                        #norm = norm-1
+                        #self.mag_list[self.index_accel] = norm
                         
                         self.index_accel = self.index_accel +1
                         print "-",
@@ -142,7 +142,8 @@ class mpu9150interface(object):
         n=0
         while( self.index_accel < (self.SIZE-1)):
             self.read_debug()
-            #print self.index_accel,
+            
+            print self.index_accel,
             sys.stdout.flush()
 
         #self.s.close()
@@ -159,16 +160,17 @@ class mpu9150interface(object):
             #if not isinstance(q,None) and not isinstance(d,None)
                 #print d
                 v = euclid.Vector3(d.data[0], d.data[1], d.data[2])
-                quat = q.to_q().conjugated()
+                #quat = q.to_q().conjugated()
+                quat = q.to_q()
                 #print quat
                 #print v
                 ###########
                 q = quat*v
-                
+                print q
                 self.calibrated_list[i] = q
-                self.calibrated_x[i] = v.x
-                self.calibrated_y[i] = v.y
-                self.calibrated_z[i] = v.z
+                self.calibrated_x[i] = q.x
+                self.calibrated_y[i] = q.y
+                self.calibrated_z[i] = q.z
 
         #plt.plot(self.calibrated_x)
         #plt.show()
