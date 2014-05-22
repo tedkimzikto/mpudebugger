@@ -8,6 +8,7 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 import euclid
+import pymysql
 
 class mpu9150interface(object):
     def __init__(self):
@@ -18,6 +19,11 @@ class mpu9150interface(object):
         self.x_list = [None]*self.SIZE
         self.y_list = [None]*self.SIZE
         self.z_list = [None]*self.SIZE
+
+        self.gyrox_list = [None]*self.SIZE
+        self.gyroy_list = [None]*self.SIZE
+        self.gyroz_list = [None]*self.SIZE
+
         self.mag_list = [None]*self.SIZE
         self.quat_list = [None]*self.SIZE
         self.accel_list = [None]*self.SIZE
@@ -27,6 +33,9 @@ class mpu9150interface(object):
         self.calibrated_y = [None] * self.SIZE
         self.calibrated_z = [None] * self.SIZE
 
+        self.linearAccel_x = [None] * self.SIZE
+        self.linearAccel_y = [None] * self.SIZE
+        self.linearAccel_z = [None] * self.SIZE
                 
         self.port="null"
         self.gravity = np.array([0,0,0])
@@ -43,6 +52,8 @@ class mpu9150interface(object):
         self.s = serial.Serial(self.port , 115200 , timeout=1)
         #self.ser.open()
 
+        #self.s.close()
+        
         if self.s.isOpen():
             print "Connected..."
         else:
@@ -91,7 +102,6 @@ class mpu9150interface(object):
 
         time.sleep(0.0005)
 
-        
         while self.s.inWaiting() >= NUM_BYTES:
             #time.sleep(0.01)
             if self.index_accel >= self.SIZE:
@@ -108,12 +118,12 @@ class mpu9150interface(object):
                     p = quat_packet(rs)
                     self.quat_list[self.index_quat] = p
                     self.index_quat = self.index_quat + 1
-                    
-                    p.display()
+                    print self.index_quat
+                    #p.display()
                     print "+",
                 elif pkt_code == 3:
                     d = data_packet(rs)
-                    d.display()
+                    #d.display()
                     self.data = d.data
                     datatype = d.type
 
@@ -133,14 +143,25 @@ class mpu9150interface(object):
                         
                         self.index_accel = self.index_accel +1
                         print "-",
+
+                    if datatype == 1:
+                        self.gyrox_list[self.index_accel] = d.data[0]
+                        self.gyroy_list[self.index_accel] = d.data[1]
+                        self.gyroz_list[self.index_accel] = d.data[2]
+
             sys.stdout.flush()
 
     def read(self):
+
+        
         self.index_quat = 0
         self.index_accel = 0 
         print "logging..."
+
+
         n=0
-        while( self.index_accel < (self.SIZE-1)):
+        while( self.index_quat < (self.SIZE-1)):
+            self.send("invz")
             self.read_debug()
             
             print self.index_accel,
@@ -162,15 +183,26 @@ class mpu9150interface(object):
                 v = euclid.Vector3(d.data[0], d.data[1], d.data[2])
                 #quat = q.to_q().conjugated()
                 quat = q.to_q()
+                invquat = q.to_q().conjugated()
                 #print quat
                 #print v
                 ###########
                 q = quat*v
-                print q
+
+                q.z = q.z-1
+                #print q
                 self.calibrated_list[i] = q
                 self.calibrated_x[i] = q.x
                 self.calibrated_y[i] = q.y
                 self.calibrated_z[i] = q.z
+
+                q = invquat * q
+
+                self.linearAccel_x[i] = q.x
+                self.linearAccel_y[i] = q.y
+                self.linearAccel_z[i] = q.z
+
+
 
         #plt.plot(self.calibrated_x)
         #plt.show()
@@ -178,6 +210,41 @@ class mpu9150interface(object):
         #plt.show()
         #plt.plot(self.calibrated_z)
         #plt.show()
+
+    def UpdateSQL(self):
+        conn = pymysql.connect(host='onefit2.cafe24.com',port=3306,user='ziql',passwd='zikto430',db='ProjectP')
+        cur  = conn.cursor()
+
+        accelx = ','.join(str(e) for e in self.x_list)
+        accely = ','.join(str(e) for e in self.y_list)
+        accelz = ','.join(str(e) for e in self.z_list)
+
+        linAccelX = ','.join(str(e) for e in self.calibrated_x) 
+        linAccelY = ','.join(str(e) for e in self.calibrated_y) 
+        linAccelZ = ','.join(str(e) for e in self.calibrated_z)
+
+        print self.quat_list
+
+        quat1 = ','.join(str(e.q0) for e in self.quat_list if e is not None)
+        quat2 = ','.join(str(e.q1) for e in self.quat_list if e is not None)
+        quat3 = ','.join(str(e.q2) for e in self.quat_list if e is not None)
+        quat4 = ','.join(str(e.q3) for e in self.quat_list if e is not None)
+
+        breaker = "\",\""
+
+        activity = "eat"
+        meta ="simulation"
+        
+        command1 = "INSERT INTO Quo( AccelX, AccelY, AccelZ, CalibX, CalibY, CalibZ, Quat1, Quat2, Quat3, Quat4, Activity, Meta) VALUES"
+        command2 = " (\""+accelx+breaker+accely+breaker+accelz + breaker + linAccelX + breaker+linAccelY + breaker + linAccelZ + breaker + quat1 + breaker + quat2+ breaker + quat3+breaker+quat4+breaker+activity+breaker+meta+"\")"
+
+        command = command1+ command2
+
+        cur.execute(command)
+        conn.commit()
+
+        print (cur.description)
+        print "done"
 
 if __name__ =="__main__":
     mpu = mpu9150interface()
@@ -196,16 +263,37 @@ if __name__ =="__main__":
             #raw_input("press enter to zeroing...")
             #mpu.zeroing()
             raw_input("press enter to start...")
-            f,axarr = plt.subplots(2,3)
+            f,axarr = plt.subplots(3,3)
+            #mpu.send("invz")
             mpu.read()
-            axarr[0,0].plot(mpu.calibrated_x)
-            axarr[0,1].plot(mpu.calibrated_y)
-            axarr[0,2].plot(mpu.calibrated_z)
-            #plt.show()
-            raw_input("press enter to start...")
-            mpu.read()
-            axarr[1,0].plot(mpu.calibrated_x)
-            axarr[1,1].plot(mpu.calibrated_y)
-            axarr[1,2].plot(mpu.calibrated_z)
-            plt.show()
             mpu.s.close()
+            #mpu.UpdateSQL()
+            axarr[0,0].plot(mpu.calibrated_x)
+            axarr[0,0].set_ylim( [-2,2])
+            axarr[0,1].plot(mpu.calibrated_y)
+            axarr[0,1].set_ylim([-2,2])
+            axarr[0,2].plot(mpu.calibrated_z)
+            axarr[0,2].set_ylim([-2,2])
+            #plt.show()
+            #raw_input("press enter to start...")
+            #mpu.read()
+            #axarr[1,0].plot(mpu.gyrox_list)
+            #axarr[1,1].plot(mpu.gyroy_list)
+            #axarr[1,2].plot(mpu.gyroz_list)
+
+            axarr[1,0].plot(mpu.x_list)
+            axarr[1,0].set_ylim( [-2,2])
+            axarr[1,1].plot(mpu.y_list)
+            axarr[1,1].set_ylim( [-2,2])
+            axarr[1,2].plot(mpu.z_list)
+            axarr[1,2].set_ylim( [-2,2])
+
+            axarr[2,0].plot(mpu.linearAccel_x)
+            axarr[2,0].set_ylim( [-2,2])
+            axarr[2,1].plot(mpu.linearAccel_y)
+            axarr[2,1].set_ylim( [-2,2])
+            axarr[2,2].plot(mpu.linearAccel_z)
+            axarr[2,2].set_ylim( [-2,2])
+
+            plt.show()
+            #mpu.s.close()
